@@ -366,3 +366,112 @@ with torch.no_grad():
 ```
 
     Predicted: "Ankle boot", Actual: "Ankle boot"
+
+
+
+## 3. 数据准备
+
+### 3.1 Pytorch数据接口和使用
+
+Pytorch提供了两个原始接口用于处理和数据相关的任务，分别是`torch.utils.data.DataLoader` 和`torch.utils.data.Dataset `。Dataset用于储存样本和对应的标签信息，Dataloader用迭代器的方式封装了Dataset。
+
+在学习pytorch的初级阶段，我们可以直接使用自带的数据素材作为训练样本，其中有三个特定领域的库[TorchText](https://pytorch.org/text/stable/index.html)，[TorchVision](https://pytorch.org/vision/stable/index.html)和 [TorchAudio](https://pytorch.org/audio/stable/index.html)，分别包含了文本数据，图像数据和音频数据，每个库都内置了几十种经典的各自领域的数据样本。
+
+在本节中我们就以torchvision为例，介绍图像数据集的使用。
+
+我们将使用的数据集是[Fashion-MNIST](https://research.zalando.com/project/fashion_mnist/fashion_mnist/)数据集，是最早由Zalando在研究论文中使用的一个分类图像数据集（总共10个类别），包含60000个训练样本和10000个测试样本，每个样本都是一张28*28的灰度图像。
+
+在使用pytorch数据准备时分为两步：
+
+1. datasets API下载数据以及数据变换
+2. Dataloader API迭代数据
+
+第一步代码如下
+
+```python
+import torch
+from torch import nn
+from torch.utils.data import DataLoader
+from torchvision import datasets
+from torchvision.transforms import ToTensor
+import matplotlib.pyplot as plt
+
+training_data = datasets.FashionMNIST(
+    root="data",
+    train=True,
+    download=False,
+    transform=ToTensor()
+)
+
+test_data = datasets.FashionMNIST(
+    root="data",
+    train=False,
+    download=False,
+    transform=ToTensor()
+)
+```
+
+datasets api接收以下这些参数作为输入
+
+- `root`用于定义数据下载的路径
+- `train` 用于标识训练集（True）还是测试集（False）
+- `download`用于标识是否下载数据到定义好的root路径，第二次运行时可以改为False
+- `transform` and `target_transform`分别用于进行样本和标签的转换，在这个例子中没有用到target_transform进行标签转换。请注意ToTensor()是一般都会用到的，因为pytorch中所有送入神经网络的数据结构都是张量（tensor），所以在这一步总是应当将原始数据转化为张量，关于transform的其他用法之后再详细解读。
+
+> 知识点：什么是张量？
+>
+> 关于张量可以用下面这张表格很好地理解其概念。通常我们在描述一个特定的数据结构时会考虑需要用几个维度才能遍历这个数据结构中的每个元素。对这些数据结构我们都有计算机语言和数学语言两套语言来指代。例如0维数据在计算机和数学中分别称为数值和标量，1维数据分别称为数组和向量，2维数据分别称为2维数组和矩阵。张量其实是一个通用性的术语，当把上面提到的n维数据结构的概念衍生到n维时，在数学上就称为n维张量，等价于计算机语言中的n维数组。
+
+| Indexes required | Computer science | Mathematics |
+| ---------------- | ---------------- | ----------- |
+| 0                | number           | scalar      |
+| 1                | array            | vector      |
+| 2                | 2d-array         | matrix      |
+| n                | nd-array         | nd-tensor   |
+
+第二步代码如下：
+
+```python
+batch_size = 64
+
+train_dataloader = DataLoader(training_data, batch_size=batch_size,shuffle=True)
+test_dataloader = DataLoader(test_data, batch_size=batch_size,shuffle=True)
+
+for X, y in test_dataloader:
+    print("Shape of X [N, C, H, W]: ", X.shape)
+    print("Shape of y: ", y.shape, y.dtype)
+    break
+```
+
+output
+
+```python
+Shape of X [N, C, H, W]:  torch.Size([64, 1, 28, 28])
+Shape of y:  torch.Size([64]) torch.int64
+```
+
+我们将第一步生成的dataset作为参数送入Dataloader中，它以迭代器的方式返回一个个batch的数据。
+
+> 知识点：Epoch, Batch
+>
+> Epoch: 所有训练样本都训练一轮，称为一个 Epoch
+>
+> Batch: 一轮训练通常会以多个batch的形式实现，假设数据集共100个样本，分成10个batch，每个batchsize是10，也就是一个epoch会训练100个全部样本，每次训练会将1个batch，也就是10个样本送入模型训练，每训练一个batch，神经网络会进行一次反向传播和梯度更新。
+
+Dataloader API接收以下参数作为输入：
+
+- dataset：Dataset 类，由上一步构建数据集时得到
+
+- batchsize: 批大小
+
+- num_works：是否多进程读取数据，默认是0，表示只使用当前进程。需要注意在windows下对多进程读取数据的效果不是很好，并且很容易出问题，对于小数据集，使用默认参数即可。
+
+- shuffle：是否打乱顺序随机分组
+
+- drop_last: 当样本数不能被 batchsize 整除时，是否舍弃最后一批数据
+
+设置完Dataloader后，试着返回数据集的第一个batch，观察张量的size。
+
+样本的size是torch.Size([64, 1, 28, 28])，四个值分别代表batchsize，channel，height，weight。batchsize是我们设置的64，也就是64张图像，channel为1表示这是一张灰度图，如果是彩色图像channel为3，高度和宽度则是单张图像的大小28*28像素。
+
+至此我们已经学会了如何使用pytorch接口使用自带的数据集进行数据准备。下一小节将进一步学习使用transform进行数据增强。
