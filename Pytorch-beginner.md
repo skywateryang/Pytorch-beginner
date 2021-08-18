@@ -475,3 +475,90 @@ Dataloader API接收以下参数作为输入：
 样本的size是torch.Size([64, 1, 28, 28])，四个值分别代表batchsize，channel，height，weight。batchsize是我们设置的64，也就是64张图像，channel为1表示这是一张灰度图，如果是彩色图像channel为3，高度和宽度则是单张图像的大小28*28像素。
 
 至此我们已经学会了如何使用pytorch接口使用自带的数据集进行数据准备。下一小节将进一步学习使用transform进行数据增强。
+
+
+
+### 3.2 自定义数据集
+
+上一节我们学习了如何调用pytorch提供的数据集，而在实际生产过程中，我们总是会使用自己的真实数据集，因此这一节就来学习如何自定义数据集。
+
+自定义数据集只需遵循两步：
+
+1. 准备一个路径存放图片数据，以及一个csv文档记录对应图片名称的标签。
+2. 自定义一个继承`torch.utils.data.Dataset`类的数据集子类
+
+遵循这两个步骤，本节将自定义一个猫狗数据集。
+
+先看第一步，在某路径下放入四张示例图片（前两张猫，后两张狗），以及一个记录了标签的文档。
+
+![](img\3-1.png)
+
+打开文档里面长这样，第一列记录图片的名称，第二列记录对应的分类，0为猫，1为狗。
+
+![](img\3-2.png)
+
+第一步到此已完成，开始第二步。
+
+写一个继承了Dataset的子类后，初始化后，复写其中的`__len__`和`__getitem__`方法。
+
+完整的类代码如下：
+
+```python
+class CatsAndDogsDataset(Dataset):
+    def __init__(self,csv_file,root_dir,transform=None):
+        # 读取标签文件
+        self.annotations =pd.read_csv(os.path.join(root_dir,csv_file))
+        # 定义文件目录
+        self.root_dir=root_dir
+        # 定义transform
+        self.transform=transform
+    
+    # 返回数据集长度，此处应为4
+    def __len__(self):
+        return len(self.annotations)
+    
+    # 获取数据的方法，会和Dataloader连用
+    def __getitem__(self,index):
+        # 获取图片路径，0表示csv文件的第一列
+        img_path=os.path.join(self.root_dir,self.annotations.iloc[index,0])
+        # 读取图片
+        image = io.imread(img_path)
+        # 获取图片对应的标签，1表示csv文件的第二列
+        y_label= torch.tensor(int(self.annotations.iloc[index,1]))
+        
+        # 如果使用时附加了transform参数，则对图片应用转换
+        if self.transform:
+            image= self.transform(image)
+            
+        # 返回一个图片和标签的元组
+        return (image,y_label)
+```
+
+在定义完dataset后就可以实例化了。
+
+```python
+# 实例化，输入文件名称，路径和需要的数据转换
+dataset = CatsAndDogsDataset(csv_file='label.csv',root_dir='data/cat_dog',transform=transforms.ToTensor())
+# 划分训练集和测试集，这里是分为3个训练样本和1个测试样本
+training_data,test_data = torch.utils.data.random_split(dataset,[3,1])
+
+# 这一步开始和使用自带数据集的代码完全一致
+batch_size=1
+train_dataloader = DataLoader(training_data, batch_size=batch_size,shuffle=True)
+test_dataloader = DataLoader(test_data, batch_size=batch_size,shuffle=True)
+```
+
+观察那一个测试样本
+
+```python
+for X, y in test_dataloader:
+    print("Shape of X [N, C, H, W]: ", X.shape)
+    print("Shape of y: ", y.shape, y.dtype)
+    break
+
+# 以图片的形式查看
+to_pil_image = transforms.ToPILImage()
+img = to_pil_image(X[0])
+img.show()
+```
+
