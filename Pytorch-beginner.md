@@ -63,10 +63,9 @@ Tensorflow通常认为是一个更为成熟的框架，在模型部署方面相�
 3. 在了解了基本流程后，开始深入填充细节，列举如下，从一个完整的流程来说加上了第五步模型部署
 
    1. 数据准备
-      - 使用Dataset API下载pytorch提供的数据集，图片，文字，音频等
-      - 使用Transform对rawdata转化
-      - 使用Dataloader API加载数据集
+      - Pytorch数据接口和使用
       - 如何自定义数据集
+      - 使用Transform对rawdata做转换
    2. 定义模型
       - GPU和CPU的选择
       - 如何定义神经网络类
@@ -562,3 +561,91 @@ img = to_pil_image(X[0])
 img.show()
 ```
 
+### 3.3 Transforms对图像做转换
+
+在上面的章节中，我们已经见到了在加载数据时用到了torchvision.transforms方法对原始数据进行张量化操作，本节将进一步介绍其他转换方法的使用。
+
+通常对原始数据进行转换的一个主要目的是数据增强（Data Augmentation）。我们都知道，一个深度学习模型的预测准确性在很大程度上是依赖于数据集的数量和多样性的。尤其在复杂结构的神经网络中，随着隐层神经元数量的爆炸式增长，需要训练的参数量也显著增加，比如在CV领域的一个重要模型RESNET就有六千万个参数。伴随着待训练参数的增加，对数据量的要求也相应增加了。但是在实际生产环境中，收集如此庞大的数据量是一个很大的难点。
+
+为了解决这一问题，有两种方法，第一种方式是使用迁移学习，也就是预训练一个复杂的基础模型，在其基础上迁移到实际数据上再次训练。另一种方法则是使用数据增强，数据增强可以满足数据多样性和数据量的需求，还可用于解决分类任务中的类不平衡问题。
+
+那么应当如何进行数据增强就要用到本节提到的transforms。
+
+依然以图像数据为例，[torchvision.transforms](https://pytorch.org/vision/stable/transforms.html#)提供了多种进行数据变换的分类，常用的就以下三类：
+
+- 对image做变换
+- 对tensor做变换
+- 对类型做转换
+
+#### 3.3.1 对image做变换
+
+对图像做变换是最常见的操作，例如裁剪，旋转，翻转，填充等等，详细的各种变换方法可以查看transforms官方文档。
+
+以resize为例：
+
+定义两个不同参数的resize变换，输入一个参数时，该方法会默认以短边为100，另一边等比例缩放，输入两个参数时，则直接指定了（高度，宽度）。
+
+```python
+import torchvision.transforms as transforms
+import matplotlib.pyplot as plt
+resize1 = transforms.Resize(100)
+resize2 = transforms.Resize((100,200))
+```
+
+定义一个plot方法，将原图和变换后的图像并排展现
+
+```py
+def plot(*imgs):
+    fig, axs = plt.subplots(nrows=1,ncols=len(imgs),figsize=(10, 10))
+    for i in range(len(imgs)):
+        axs[i].imshow(np.asarray(imgs[i]))
+```
+
+展示变换效果
+
+```python
+plot(img,resize1(img),resize2(img))
+```
+
+![](img\3-3.png)
+
+
+
+#### 3.3.2 对tensor做变换
+
+Normalize标准化是最常用的对tensor进行变换的方法。
+
+首先计算标准化之前的均值和标准差，
+
+```python
+mean = next(iter(test_dataloader))[0].mean()
+std=next(iter(test_dataloader))[0].std()
+print('mean of input : {}'.format(mean))
+print('std of input : {}'.format(std))
+```
+
+```
+mean of input : 0.43933048844337463
+std of input : 0.2347354143857956
+```
+
+先将图片转化为tensor之后，再进行标准化，再次观察均值和标准差，发现已经变成标准正态分布
+
+```python
+trans= transforms.Compose([transforms.ToTensor(),transforms.Normalize(mean,std)])
+print('mean of input : {}'.format(trans(img).mean()))
+print('std of input : {}'.format(trans(img).std()))
+```
+
+```
+mean of input : -1.1390642384867533e-07
+std of input : 0.9999999403953552
+```
+
+在这里我们用到了``transforms.Compose``，作用是将多个transforms操作结合成一个序列，从而对原始数据进行多步变化。
+
+#### 3.3.3 对类型做转换
+
+这一类变化的作用是将图片数据转换为张量形式，或将张量数据转换为图片形式，分别由以下这两个方法进行控制，特别注意最终送入训练模型的数据类型一定要是张量的形式。
+
+`torchvision.transforms.ToPILImage`，`torchvision.transforms.ToTensor`
