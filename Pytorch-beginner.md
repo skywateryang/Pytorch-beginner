@@ -68,7 +68,6 @@ Tensorflow通常认为是一个更为成熟的框架，在模型部署方面相�
       - 使用Transform对rawdata做转换
    2. 定义模型
       - 如何定义神经网络类
-      - 模型层的参数详解
       - 定义序列化网络容器
       - 查看模型参数
       - 激活函数
@@ -761,3 +760,143 @@ Params size (MB): 2.55
 Estimated Total Size (MB): 4.14
 ----------------------------------------------------------------
 ```
+
+
+
+### 4.2 定义网络模型容器
+
+在pytorch中写模型类时，最基础的方式是一层一层在初始化方法中定义layer后，在前向传播方法中逐层传播。
+
+以quickstart中的网络结构为例，初学者通常接触到的写法是这样的，比较直观，但写法上不够简洁。
+
+```python
+class NeuralNetwork(nn.Module):
+    def __init__(self):
+        super(NeuralNetwork, self).__init__()
+        self.flatten = nn.Flatten()
+        self.linear1=nn.Linear(28*28, 512)
+        self.linear2=nn.Linear(512, 512)
+        self.linear3=nn.Linear(512, 10)
+        self.relu1=nn.ReLU()
+        self.relu2=nn.ReLU()
+        self.relu3=nn.ReLU()
+        
+    def forward(self, x):
+        x = self.flatten(x)
+        x = self.linear1(x)
+        x = self.relu1(x)
+        x = self.linear2(x)
+        x = self.relu2(x)
+        x = self.linear3(x)
+        x = self.relu3(x)
+        return x
+```
+
+本节将介绍pytorch中模型容器的写法，模型容器提供了和上述代码不一样的构造神经网络模型的方法。
+
+- nn.Sequential
+- nn.ModuleDict
+- nn.ModuleList
+
+``nn.Sequential``提供了一种链式构造模型的方法，模型在前向传播的时候会严格遵循写入其中的顺序。
+
+使用Sequential构造链式模型又有三种方法：
+
+```python
+# 方法1
+torch.manual_seed(42)
+model1 = nn.Sequential(
+            nn.Linear(28*28, 512),
+            nn.ReLU(),
+            nn.Linear(512, 512),
+            nn.ReLU(),
+            nn.Linear(512, 10),
+            nn.ReLU()
+        )
+
+# 方法2
+torch.manual_seed(42)
+layer2=OrderedDict([
+    ('linear1',nn.Linear(28*28, 512)),
+    ('relu1',nn.ReLU()),
+    ('linear2',nn.Linear(512, 512)),
+    ('relu2',nn.ReLU()),
+    ('linear3',nn.Linear(512, 10)),
+    ('relu3',nn.ReLU())
+])
+model2 = nn.Sequential(layer2)
+
+# 方法3
+torch.manual_seed(42)
+model3=nn.Sequential()
+model3.add_module('linear1',nn.Linear(28*28, 512))
+model3.add_module('relu1',nn.ReLU())
+model3.add_module('linear2',nn.Linear(512, 512))
+model3.add_module('relu2',nn.ReLU())
+model3.add_module('linear3',nn.Linear(512, 10))
+model3.add_module('relu3',nn.ReLU())
+```
+
+第一种方法直接将各层写入nn.Sequential中，可以用位置索引获取某一层的信息，第二种方法使用了有序字典，将有序字典写入nn.Sequential中，可以用字典索引获取某一层的信息，第三种方法逐层添加模型层。
+
+这三种模型的写法效果是一样的，用一个虚拟的数据做测试，传入同一个数据时，我们得到了完全一样的输出。
+
+```python
+X = torch.randn((1,784))
+model1(X), model2(X), model3(X)
+```
+
+```
+(tensor([[0.0000, 0.0066, 0.0020, 0.0000, 0.0000, 0.0000, 0.0131, 0.0932, 0.0000,
+          0.0439]], grad_fn=<ReluBackward0>),
+ tensor([[0.0000, 0.0066, 0.0020, 0.0000, 0.0000, 0.0000, 0.0131, 0.0932, 0.0000,
+          0.0439]], grad_fn=<ReluBackward0>),
+ tensor([[0.0000, 0.0066, 0.0020, 0.0000, 0.0000, 0.0000, 0.0131, 0.0932, 0.0000,
+          0.0439]], grad_fn=<ReluBackward0>))
+```
+
+``nn.Sequential``写法的好处是序列中的各层网络层会自动以链式连接，在前向传播时把整个容器作为整体，写法更为简洁美观。
+
+``nn.ModuleDict``的用法如下，在初始化时以字典的形式定义网络层，在前向传播中则以键值对的方式传入参数选择合适的网络结构，这种写法的特点是可以灵活地根据参数调整网络结构。
+
+```python
+class MyModuleDict(nn.Module):
+    def __init__(self):
+        super(MyModuleDict, self).__init__()
+        self.choices = nn.ModuleDict({
+                'conv': nn.Conv2d(10, 10, 3),
+                'pool': nn.MaxPool2d(3)
+        })
+        self.activations = nn.ModuleDict([
+                ['lrelu', nn.LeakyReLU()],
+                ['prelu', nn.PReLU()]
+        ])
+
+    def forward(self, x, choice, act):
+        x = self.choices[choice](x)
+        x = self.activations[act](x)
+        return x
+    
+X=  torch.randn((1, 10, 32, 32))
+model_dict4= MyModuleDict()
+output = model_dict4.forward(X,'conv','lrelu')
+```
+
+``nn.ModuleList``的写法如下，它的特点是以迭代的方式创建网络层，常用于大量重复网络构建。
+
+```python
+class MyModuleList(nn.Module):
+    def __init__(self):
+        super(MyModuleList, self).__init__()
+        self.linears = nn.ModuleList([nn.Linear(10, 10) for i in range(10)])
+
+    def forward(self, x):
+        for i, linear in enumerate(self.linears):
+            x = linear(x)
+        return x
+    
+X = torch.randn((1, 10))
+model5=MyModuleList()
+output=model5(X)
+```
+
