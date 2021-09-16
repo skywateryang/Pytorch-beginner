@@ -1,4 +1,4 @@
-# Pytorch-beginner
+Pytorch-beginner
 
 ## 1. Python深度学习框架的选择
 
@@ -69,10 +69,8 @@ Tensorflow通常认为是一个更为成熟的框架，在模型部署方面相�
    2. 定义模型
       - 如何定义神经网络类
       - 定义序列化网络容器
-      - 查看模型参数
       - 激活函数
       - 正则化
-      - GPU和CPU的选择
    3. 模型训练与验证
       - 损失函数
       - 模型优化器
@@ -900,3 +898,85 @@ model5=MyModuleList()
 output=model5(X)
 ```
 
+
+
+### 4.3 激活函数
+
+激活函数是神经网络设计中的一个重要部分，当作用在不同网络层时，激活函数起到不同的效果，当作用在隐层（hidden layer）时，用来控制模型如何学习训练数据的，当作用在输出层（output layer）时，用来定义模型输出预测类型。
+
+大多数激活函数都是非线性的，一般在同一个模型中，所有隐层都会采用相同的激活函数。
+
+#### 4.3.1 隐层的激活函数
+
+隐层的激活函数会在其结果输出到下一层之前使用，最常见的隐层激活函数有三种：
+
+- Rectified Linear Activation (**ReLU**)
+- Logistic (**Sigmoid**)
+- Hyperbolic Tangent (**Tanh**)
+
+首先将三种激活函数画出，观察其特点
+
+```python
+import matplotlib.pyplot as plt
+from math import exp
+
+# 写出三种激活函数的表达式
+# ReLU
+def rectified(x):
+    return max(0.0, x)
+
+# sigmoid
+def sigmoid(x):
+    return 1.0 / (1.0 + exp(-x))
+
+# tanh
+def tanh(x):
+    return (exp(x) - exp(-x)) / (exp(x) + exp(-x))
+
+# 定义输入
+input = [x for x in range(-6, 6)]
+# 计算三种输出
+relu = [rectified(x) for x in inputs]
+sigmoid = [sigmoid(x) for x in inputs]
+tanh = [tanh(x) for x in inputs]
+
+# 绘制三种激活函数
+plt.plot(inputs,relu,label='relu')
+plt.plot(inputs,sigmoid,label='sigmoid')
+plt.plot(inputs,tanh,label='tanh')
+plt.legend();
+```
+
+![](img\4-1.png)
+
+ReLU函数表达最简单，就是在0和输入x中取最大值，当输入小于0时，输出为0，当输入大于0时，输入为线性函数。
+
+Sigmoid函数也是logistic回归中用到的分类算法，它将输入压缩到0和1之间。
+
+Tanh函数和Sigmoid类似，只是它将输入压缩到-1和1之间。
+
+那么对于隐层，我们应当如何选择激活函数呢。在激活函数的选择上也一直在发生变化，曾经sigmoid和tanh都是主流的激活函数方法，目前来说，ReLU已经变成了主流，尤其是在MLP和CNN的应用上，但对于RNN/LSTM这些基于时间序列的神经网络，仍然会使用Tanh。
+
+Tanh和Sigmoid逐渐退出舞台主要是因为随着计算机算力的提升，神经网络结构变得越来越深，而这两种激活函数由于在输入x的绝对值稍大于0时就会迅速趋于饱和，这使得导数趋于0，在很深的网络反向传播时会导致梯度消失问题，使得神经网络无法训练下去。
+
+而ReLU则很好地避免了这一问题，除了这个优点，ReLU还有其他两个优点，一是计算简单，从上面的代码中也可以看到计算ReLU只是很简单的一步计算最大值；二是稀疏性表示(Representational Sparsity)，ReLU的一个重要优势是它能够输出真正的零值，这与tanh和Sigmoid激活函数不同，后者学习近似零输出，例如非常接近零的值，但不是真正的零值。ReLU在输入为负值时输出真正的零值可以加快学习速度并简化模型。
+
+另外在ReLU的使用中，一个经验是对权重使用`He initialization`，这能让模型训练效果更好。
+
+
+
+#### 4.3.2 输出层的激活函数
+
+输出层的激活函数是指在输出最终预测结果之前施加的激活函数，对于输出层，也有三种常见的激活函数。
+
+- Linear
+- Logistic (Sigmoid)
+- Softmax
+
+线性激活函数没有对输出进行任何变化，也称为恒等激活函数，一般用的很少。
+
+Sigmoid刚才已经做了介绍，和作用于隐层的激活函数一样。
+
+Softmax激活函数在数学上将一个向量转化为和为一的等长向量，计算公式为$$\frac{e^x} {\sum{e^x}} $$。按照这个公式计算，一个输出层的原始输出向量[1.0, 3.0, 2.0]，在作用了Softmax激活函数后会输出[0.09003057，0.66524096，0.24472847]。
+
+那么应当如何选择合适的输出层激活函数呢，这取决于预测的类型。对于回归问题，我们会选择线性输出层。对于分类问题，则要进一步细分三种情况，首先对于二分类问题，适用于Sigmoid激活函数，这本质上和logistic回归是一样的，对于多分类问题，则应当使用Softmax激活函数，另外还有一类特殊的多标签问题，也就是一个样本可以分类为多个标签，这时应当对每个类别使用Sigmoid激活函数。
