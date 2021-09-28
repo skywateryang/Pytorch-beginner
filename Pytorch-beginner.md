@@ -980,3 +980,367 @@ Sigmoid刚才已经做了介绍，和作用于隐层的激活函数一样。
 Softmax激活函数在数学上将一个向量转化为和为一的等长向量，计算公式为$$\frac{e^x} {\sum{e^x}} $$。按照这个公式计算，一个输出层的原始输出向量[1.0, 3.0, 2.0]，在作用了Softmax激活函数后会输出[0.09003057，0.66524096，0.24472847]。
 
 那么应当如何选择合适的输出层激活函数呢，这取决于预测的类型。对于回归问题，我们会选择线性输出层。对于分类问题，则要进一步细分三种情况，首先对于二分类问题，适用于Sigmoid激活函数，这本质上和logistic回归是一样的，对于多分类问题，则应当使用Softmax激活函数，另外还有一类特殊的多标签问题，也就是一个样本可以分类为多个标签，这时应当对每个类别使用Sigmoid激活函数。
+
+
+
+### 4.4 正则化
+
+和机器学习一样，正则化也是深度学习中常用的技术，使用它的主要目的是为了减小variance，从而避免过拟合现象。
+
+经典的正则化方法有以下几种：
+
+- Dropout - 在全连接层中随机丢弃部分神经元节点，产生一个简化了的网络结构
+- L1/L2正则化 - 在原始的损失函数中增加L1/L2的惩罚项，从而限制产生较大的权重w
+- Batch normalization - 控制隐层的输出在一个稳定的范围内
+- 数据增强 - 通过增加数据集多样性的方式避免过拟合
+- Early stopping - 在达到模型过拟合的阶段前停止训练模型
+
+**Dropout**
+
+dropout在pytorch中的使用非常简单，直接使用`torch.nn.Dropout`的方式调用即可，该方法有一个参数p，代表需要丢弃的节点百分比，默认值0.5表示丢弃50%的神经元节点。
+
+以第二章的经典pytorch神经网络流程为例，在代码中只需要在定义网络结构时使用加入nn.Dropout(p)即可。
+
+```python
+def __init__(self,p):
+    super(NeuralNetwork, self).__init__()
+    self.flatten = nn.Flatten()
+    self.linear_relu_stack = nn.Sequential(
+        nn.Linear(28*28, 512),
+        nn.Dropout(p),
+        nn.ReLU(),
+        nn.Linear(512, 512),
+        nn.Dropout(p),
+        nn.ReLU(),
+        nn.Linear(512, 10),
+        nn.ReLU()
+    )
+```
+
+在使用dropout和不使用dropout的情况下分别训练模型40个epoch，观察训练集和测试集上的准确率变化曲线。
+
+在使用dropout以后，无论是在训练集还是在测试集上模型的准确率明显提升了，也可以认为是训练地更快了。并且观察到在使用dropout的情况下，测试集上的准确率比训练集上更高，这是因为在测试集上做推理时dropout是关闭的，说明在训练集上起到了限制过拟合的作用。
+
+![img](img/4-2.png)
+
+Backup：上图的代码如下
+
+```python
+model_wodrop = NeuralNetwork(0).to(device)
+loss_fn = nn.CrossEntropyLoss()
+optimizer_wodrop = torch.optim.SGD(model_wodrop.parameters(), lr=1e-3)
+model_drop = NeuralNetwork(0.5).to(device)
+optimizer_drop = torch.optim.SGD(model_drop.parameters(), lr=1e-3)
+
+def train(dataloader, model, loss_fn, optimizer):
+    size = len(dataloader.dataset)
+    model.train()
+    train_loss=0
+    correct=0
+    for batch, (X, y) in enumerate(dataloader):
+        X, y = X.to(device), y.to(device)
+        
+        # Compute prediction error
+        pred = model(X)
+        loss = loss_fn(pred, y)
+        
+        # Backpropagation
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        train_loss+= loss.item()
+        correct += (pred.argmax(1) == y).type(torch.float).sum().item()
+    train_loss = train_loss/len(dataloader)
+    correct /= size
+    return correct
+
+def test(dataloader, model, loss_fn):
+    size = len(dataloader.dataset)
+    model.eval()
+    test_loss= 0
+    correct=0
+    with torch.no_grad():
+        for X, y in dataloader:
+            X, y = X.to(device), y.to(device)
+            pred = model(X)
+            test_loss += loss_fn(pred, y).item()
+            correct += (pred.argmax(1) == y).type(torch.float).sum().item()
+    test_loss = test_loss/len(dataloader)
+    correct /= size
+    return correct
+
+epochs = 40
+epoch_array=  np.arange(1,epochs+1,dtype=np.float64)
+train_acc_wodrop = np.zeros_like(epoch_array)
+test_acc_wodrop = np.zeros_like(epoch_array)
+for i in range(epochs):
+    train_acc_wodrop[i] =  train(train_dataloader, model_wodrop, loss_fn, optimizer_wodrop)
+    test_acc_wodrop[i] =  test(test_dataloader, model_wodrop, loss_fn)
+    
+
+train_acc_drop = np.zeros_like(epoch_array)
+test_acc_drop = np.zeros_like(epoch_array)
+for i in range(epochs):
+    train_acc_wodrop[i] =  train(train_dataloader, model_drop, loss_fn, optimizer_drop)
+    test_acc_wodrop[i] =  test(test_dataloader, model_drop, loss_fn)
+
+    
+plt.plot(epoch_array,train_acc_wodrop,label='train acc')
+plt.plot(epoch_array,test_acc_wodrop,label='test acc')
+plt.plot(epoch_array,train_acc_drop,label='train acc with dropout')
+plt.plot(epoch_array,test_acc_drop,label='test acc with dropout')
+plt.legend()
+```
+
+
+
+**L1/L2正则化**
+
+由于L1/L2正则化是在损失函数上增加惩罚项，因此这次要修改的是训练时的损失函数。
+
+要修改的代码部分如下
+
+```python
+loss = loss_fn(pred, y)
+# 以下为新增部分
+re_lambda = 0.001
+if re =='l2':
+    re_norm = sum(p.pow(2.0).sum()  for p in model.parameters())
+elif re =='l1':
+    re_norm = sum(abs(p).sum()  for p in model.parameters())
+loss = loss + re_lambda * re_norm
+```
+
+使用L1/L2正则化分别训练模型20个epoch，观察训练集和测试集上的准确率变化曲线，在这个示例模型上的效果不如dropout好。
+
+![](img/4-3.png)
+
+另外，对于L2正则化，pytorch提供了一种更便捷的方法，就是在优化器中直接添加权重衰减参数。
+
+```python
+optimizer_l2 = torch.optim.SGD(model_l2.parameters(), lr=1e-3，weight_decay=1e-2）
+```
+
+**Batch normalization**
+
+批量归一化操作做的事情是首先对该层同一batch下所有的样本计算均值和方差，对样本做归一化，然后在归一化后的数值上进行Scale和shift，也就是引入两个新的可以学习的参数 $\gamma$ 和$ \beta $ 。
+
+通常我们在训练一个神经网络模型时，会对数据进行归一化再传入模型，目的是为了防止使用sigmoid之类的激活函数时过早出现饱和，但是当样本数据进行到中间层时，数据的分布发生了变化，术语上叫做internal covariate shift。BN最先被提出时就是为了解决这一问题，使得数据在中间层时也能保持较为一致的分布，加速训练过程。现在主流认为其实BN也是一种正则化方法。
+
+pytorch中提供了现成的方法调用BN，根据数据维度的不同，可以灵活使用
+
+- nn.BatchNorm1d
+- nn.BatchNorm2d
+- nn.BatchNorm3d
+
+在我们这个示例模型中，由于是一维数据，所以使用nn.BatchNorm1d，BN有一个必需的参数-特征数量，在本例子中由于线性层的输出是512，因此1D BN的特征数量参数也设置为512。
+
+```python
+# 在模型定义中的线性层后面直接添加BN层
+nn.Linear(512, 512)
+nn.BatchNorm1d(512)
+```
+
+![](img/4-4.png)
+
+从模型效果看，使用了批量归一化的模型训练相比于以上两种正则化方法明显更快。
+
+## 5. 模型训练与验证
+
+### 5.1 模型可视化
+
+可视化是帮助我们进行模型训练和调参的重要工具，本节就来学习pytorch中的模型可视化方法。Tensorboard是深度学习框架TensorFlow的经典可视化扩展包，如今已经被Pytorch借用过来，因此在Pytorch中也可以使用这一可视化利器。
+
+使用tensorboard分为以下几步：
+
+1. 安装
+
+   ```bash
+   pip install tensorboard
+   ```
+
+2. 启动Web服务
+
+   ```bash
+   # 命令行中输入以下命令，logdir表示临时文件的目录
+   tensorboard --logdir=runs
+   ```
+
+3. 打开web窗口
+
+   默认状态下的本机web路径是http://localhost:6006/，在启动web服务后打开该网址
+
+4. 在pytorch代码中初始化
+
+   ```python
+   from torch.utils.tensorboard import SummaryWriter
+   # 新建一个SummaryWriter实例
+   tb = SummaryWriter()
+   ```
+
+5. 在pytorch代码中定义可视化图表
+
+   重点讲述五种图表类型，更多图表请参考tensorboard官方文档https://pytorch.org/docs/stable/tensorboard.html。
+
+   - add_image
+   - add_graph
+   - add_scalar
+   - add_scalars
+   - add_histogram
+
+   add_image方法可以展示样本数据，add_graph可以画出网络模型结构。
+
+   ```py
+   images, labels = next(iter(train_dataloader))
+   grid = torchvision.utils.make_grid(images)
+   
+   tb.add_image('images', grid)
+   tb.add_graph(network, images)
+   ```
+
+   此时网页顶端菜单栏会多出两个标签，IMAGES和GRAPHS
+
+   点击IMAGES菜单，查看样本预览
+
+   ![](img/5-1.png)
+
+   
+
+   点击GRAPHS菜单，查看模型结构
+
+   ![](img/5-2.png)
+
+   add_scalar，add_scalars分别为添加单折线图和多折线图
+
+   ```python
+   # 在训练和测试过程中，每个epoch循环下添加想要观察的特征指标，其中add_scalar直接传入单个指标值，add_scalars以字典的形式传入多个指标值
+   for epoch in range(10):
+       #...省略训练过程代码
+       tb.add_scalar('Loss',total_loss,epoch)
+       tb.add_scalar('Number Correct',total_correct,epoch)
+       tb.add_scalar('Accuracy',total_correct/len(train_dataloader.dataset),epoch)
+   
+   	tb.add_scalars('Loss vs Correct', {'Loss':total_loss,'Correct':total_correct }, epoch)
+       
+   ```
+
+   点击新增的SCALARS菜单，查看训练曲线
+
+   ![](img/5-3.png)
+
+   add_histogram分别为模型参数绘制直方图
+
+   ```python
+   for epoch in range(10):
+       #...省略训练过程代码
+       tb.add_histogram('conv1.bias', network.conv1.bias,epoch)
+       tb.add_histogram('conv1.weight', network.conv1.weight,epoch)
+   ```
+
+   点击新增的HISTOGRAMS菜单，查看模型参数直方图
+
+   ![](img/5-4.png)    
+
+6. 关闭可视化实例
+
+   ```python
+   tb.close()
+   ```
+
+   
+
+
+
+
+
+## 6. 模型保存与加载
+
+pytorch提供了用于保存和加载模型的API，本质上是对数据进行序列化和反序列化的操作。
+
+模型的保存有两种形式，第一种是保存整个模型结构和参数。
+
+首先定义一个简单的模型
+
+```python
+import torch
+from torch import nn
+class NeuralNetwork(nn.Module):
+    def __init__(self,input):
+        super(NeuralNetwork, self).__init__()
+        self.linear =  nn.Linear(input,1)
+
+    def forward(self, x):
+        y = torch.sigmoid(self.linear(x))
+        return y
+
+model = NeuralNetwork(6)
+
+# 查看初始化参数
+for param in model.parameters():
+    print(param)
+```
+
+打印参数如下
+
+```
+Parameter containing:
+tensor([[ 0.0359, -0.1966,  0.2582, -0.0995,  0.1117, -0.2410]],
+       requires_grad=True)
+Parameter containing:
+tensor([-0.0774], requires_grad=True)
+```
+
+保存并重新加载模型，pytorch中用于保存和加载的API分别为`torch.save`和`torch.load`。
+
+```python
+file = 'model.pth'
+torch.save(model,file)
+
+model_load = torch.load(file)
+model_load.eval()
+```
+
+再次查看加载后的模型参数，发现和原始参数一致。
+
+但是这种保存的方式一般不推荐，保存完整的模型结构使得序列化文件较大，并且灵活性也不够。官方推荐的方式仅保存参数。
+
+第二种方式使用如下
+
+```python
+# 仅保存模型的state_dict
+torch.save(model.state_dict(),file)
+
+# 加载模型前需要先再次定义模型
+model_load= NeuralNetwork(6)
+model_load.load_state_dict(torch.load(file))
+model_load.eval()
+```
+
+模型保存还有一个使用场景是设置checkpoint，例如当训练很慢时，为了防止程序中途意外中断，可以每隔一段epoch就保存下模型参数，再次使用时重新加载参数即可。
+
+假设在模型训练过程中程序中断了，幸好模型参数在epoch=50是保存下来了
+
+```python
+model = NeuralNetwork(6)
+optimizer = torch.optim.SGD(model.parameters(),lr=0.01)
+
+checkpoint = {
+    "epoch":50,
+    "model_state":model.state_dict(),
+    "optim_state":optimizer.state_dict()
+}
+torch.save(checkpoint,"checkpoint.pth")
+```
+
+此时我们重新开启训练过程，先从保存的文件中读取参数，在此基础上再次训练
+
+```python
+model_resume = model = NeuralNetwork(6)
+optimizer_resume = torch.optim.SGD(model_resume.parameters(),lr=0)
+
+load_checkpoint = torch.load("checkpoint.pth")
+epoch = load_checkpoint['epoch']
+model_resume.load_state_dict(load_checkpoint['model_state'])
+optimizer_resume.load_state_dict(load_checkpoint['optim_state'])
+```
+
